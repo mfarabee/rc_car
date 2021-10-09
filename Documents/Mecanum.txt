@@ -1,0 +1,163 @@
+Description:
+
+A simple way to model movement of Mecanum wheels is using force vectors. The paper “Designing Omni-Directional Mobile Robot with Mecanum Wheel” is a good diagram of the force vectors on page 1832. Basically the vectors for each wheel can be summed together to determine the direction. The direction of each wheel (vector) is predetermined, only the speed (vector magnitude) is changed.
+
+To calculate the wheel speed is to apply the following equations (from "Simplistic Control of Mecanum Drive" doc).
+
+     V1=Vd sin(θd+π/4)+Vθ
+     V2=Vd cos(θd+π/4)−Vθ
+     V3=Vd cos(θd+π/4)+Vθ
+     V4=Vd sin(θd+π/4)−Vθ
+
+     Vx=The voltage multiplier for the xth wheel
+     Vd=Desired robot speed [−1,1]
+     θd=Desired robot angle [0,2π ]
+     Vθ=Desired speed for changing direction [−1,1]
+
+This will create a force (voltage) multiplier relative to each wheel. This multiplier can range from -1 to 1. Each wheel multiplier can then be applied to the overall desired speed to set the final speed for each motor. 
+
+Since the two front wheels (and two back) have a driving angle of 45° and are angled in opposite directions,  they are really 90 degrees out of phase. This can be modeled by the sine and cosine functions respectivly.
+
+The movement angle of the wheel 45° (π/4 radians) is added to the desired translation angle (robot direction) and the appropriate sine/cosine function is applied.  The result will be a number between -1 and 1.This can then be multiplied by the desired speed to scale each wheel. An additional rotation speed can be applied to each wheel to allow the robot to rotate while translating. When a rotation speed (from -1 to 1) is applied, the result is no longer between -1 and 1. Because of this, it will be necessary to re-scale (normalize) the result back to -1 to 1. When rotation is not used, the normalization is still beneficial, as it will rescale the multiplier to the upper limit of 1. An example is when the robot is to move straight ahead (translation angle=0). each wheel will have a calculated multiplier of 0.707, causing the robot to only move at 71% power. instead the normalization will set each wheel to a multiplier of 1.
+
+
+
+
+
+
+How to use this in an actual application
+-----------------------
+# initalize robot class
+RobotClass myRobot;
+# rotateMagnitude defined by experimentaion (0-1, how fast the robot shout rotate
+#define rotateMagnitude 1
+
+# use X/Y coordinates of the current and destination positions to determine angle of translation. This can also be used to determind translation distance.
+angle=
+
+#loop until location and rotation is met
+while(location != destinaton || rotation != 0.0){
+   # read gyro and determine if rotation is necessary. Set to zero if no rotation
+   if(gyro ==angle){
+      rotation=0.0;
+   }else{
+      rotation= rotateMagnitude * rotatonDirection; # direction +1=CW  , -1=CCW
+   }
+
+   # calculate multipliers for all Wheels
+   myRobot.calculateWheels(angle,rotation);
+
+   # call get multipliers for Wheels 
+   myRobot.getAllWheels(speed,&fLeft,&fRight,&bLeft,&bRight);
+
+   # call routine to set motor speeds
+}
+
+
+
+
+Code:
+
+#define wheelMotionRight        1
+#define wheelMotionLeft         2
+#define wheelSideLeft           3
+#define wheelSideRight          4
+#define degree2Rad              (PI/180.0)
+
+# this is a class for a single wheel.
+Class WheelClass{
+   private 
+      int wheelDirection;
+      int wheelSide;
+      float  vMult;
+   public:
+
+      void WheelClass (int direction, int side){   # initialize class
+         wheelDirection = direction;
+         wheelSide = side;
+      }
+
+      # calculate the multiplier for the specific wheel. Do not factor in the
+      # speed yet (vd from equation), this will allow faster recalculation if only speed is changed
+      # is changed without changing the angle or rotation. 
+      float calculateMultiplier (float angle, float rotation) {
+        angle=angle*degree2Rad;  #convert angle to radians
+        
+        if(wheelDirection == wheelMotionRight){
+           vMult= sin(angle+ (PI/4));
+        }else {
+           vMult= cos(angle+(PI/4));
+        }
+        if(wheelSide == wheelSideLeft){
+           vMult= vMult + rotation;
+        }else {
+           vMult= vMult - rotation;
+        }
+      }
+
+      # access function for wheel multiplier
+      float getMultiplier(){
+          return(vMult);
+      }
+};
+
+
+Class RobotClass{
+  private:
+     float wheel [4]=[0.0,0.0,0.0,0.0];
+     float translationAngle=0.0;
+     float rotationSpeed=0.0;
+     # hard coded definition of wheel orientations
+     WheelClass   frontLeft(wheelMotionRight,wheelSideLeft);
+     WheelClass   frontRight(wheelMotionLeft,wheelSideRight);
+     WheelClass   backLeft(wheelMotionRight,wheelSideLeft);
+     WheelClass   backRight(wheelMotionLeft,wheelSideRight);
+     
+   public:
+
+      void calculateWheels (float tAngle, float rSpeed){
+          # Do not recalculate if values did not change
+          If (tAngle !=translationAngle || rSpeed != rotationSpeed){
+              # store angle and speed
+              translationAngle=tAngle;
+              rotationSpeed=rSpeed;
+              # The following could be replaced with a table lookup. The table lookup
+              # could be used to tweek the values to better reflect the wheel movement.
+              # calculate multiplier for each wheel and normalize              
+              wheel[0]=frontLeft.calcMultiplier(translationAngle,rotationSpeed);
+              wheel[1]=frontRight.calcMultiplier(translationAngle,rotationSpeed);
+              wheel[2]=backLeft.calcMultiplier(translationAngle,rotationSpeed);
+              wheel[3]=backLeft.calcMultiplier(translationAngle,rotationSpeed);
+              normalizeWheelMultipliers();
+          }
+     }
+
+     void normalizeWheelMultipliers(){
+        int i;
+        float highest=0.0;
+        # locate highest value
+        for (i=0, i<=3, ++i){
+           if(abs(wheel[i])>highest){
+              highest=abs(wheel[i]);
+           }
+        }
+        # normalize values
+        for (i=0, i<=3, ++i){
+            wheel[i]=wheel[i]/highest;
+        }
+      }
+
+      # returns the scaled speed for a specific wheel
+      float getWheelSpeed(int wheelNumber,float speed){
+         return(wheel[wheelNumber]*speed);
+      }
+
+      # returns scaled speed for all wheels.
+      void getAllWheels (float speed, float *w0,float *w1,float *w2,float *w3){
+         *w0=getWheelSpeed(0,speed);
+         *w1=getWheelSpeed(1,speed);
+         *w2=getWheelSpeed(2,speed);
+         *w3=getWheelSpeed(3,speed);
+      }
+};
+
